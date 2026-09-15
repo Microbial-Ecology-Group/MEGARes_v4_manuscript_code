@@ -1,4 +1,4 @@
-#### Introduction
+### Introduction
 This a tutorial for making mock-metagenomic data using MEGARes v4 and the bacterial and archaeal genomes (n=19) from the Zymo gut mock (Cat: D6331). The result of this process is 30 mock metagenomes, with n=10 each sequenced to 5M, 25M, and 50M reads per sample, referred to throughout this tutorial as "depth groups". The methodology employed here creates mock paired-end samples with a high-degree of randomness. Within each depth group, n=5 inputs share similar antimicrobial resistance gene and ground-truth SNV composition. However, no two inputs have the same exact composition, and the relative abundance of each microbial genome in each mock-metagenome was selected at random. 
 
 The workflow below was designed to replicate highly-random conditions, but could be modified to create sets of mock-metagenomes with greater similarity, particularly for simulating results from highly similar metagenomes, or to test hypotheses related to gene recall across metagenomes with slight deviations in abundance. Lastly, this workflow is run in steps, rather than as a complete pipeline. However, subsequent work could be done to create a pipeline. 
@@ -314,7 +314,7 @@ Both scripts run on a per-sample basis, and iterate to the next sample with each
 i=1; while [ $i -le 10 ]; do ngless -j100 filter.ngl; i=$((i+1)); done
 ```
 
-#### Step 6: Call SNVs with metaSNV v2. 
+### Step 6: Call SNVs with metaSNV v2. 
 SNVs are called using the main metaSNV python file, which outputs the files needed to construct the count matrix. Unlike with NGLess, if you prematurely create the output directory, then metaSNV will throw an error. The output directory is therefor created with the metaSNV.py command. There are other dependencies in the overall software, so this may be best managed as a conda environment. The only file that needs to be created manually is "bam_filepaths.txt", which should contain the absolute path to each bam file, one per file. This can also be done on the command line like so: 
 ```
 ## get all file paths in alignment directory
@@ -342,7 +342,7 @@ metaSNV output DIR         = test_results/SNV_analysis_output/
 path to bam_filepaths.txt  = test_results/Alignment/Sam_files/bam_filepaths.txt path to MEGARes db.        = data/amr/megares_v4_database.fasta
 ```
 
-#### Step 7: Format SNV output for recall and precision analysis. 
+### Step 7: Format SNV output for recall and precision analysis. 
 This step uses a custom python script, clean_metaSNP_1.0.1.py. This script differs slightly from the second version, which is used in the actual AMR++ pipeline. The main difference is the formatting of SNV annotations, which contain an extra "accession" for easier parsing for recall and precision analysis. This script is run like so: 
 ```
 ## Clean outputs

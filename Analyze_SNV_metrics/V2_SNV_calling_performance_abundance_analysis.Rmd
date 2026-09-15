@@ -22,9 +22,9 @@ library(patchwork)
 
 #### Load Data
 ```{r}
-tp_data1 <- readRDS("v2_tp_snv_data/set1_v4_R_snp_onebased_pa.rds")
-tp_data2 <- readRDS("v2_tp_snv_data/set2_v4_R_snp_onebased_pa.rds")
-snp_accs <- readRDS("v2_tp_snv_data/draft2_v4_snpheads.rds")
+tp_data1 <- readRDS("v2_tp_snp_data/set1_v4_R_snp_onebased_pa.rds")
+tp_data2 <- readRDS("v2_tp_snp_data/set2_v4_R_snp_onebased_pa.rds")
+snp_accs <- readRDS("v2_tp_snp_data/draft2_v4_snpheads.rds")
 ## Data inputs
 called_snps_10m_45 <- read.csv("v2_V4Full_data/v2_10M_45bp_97_count_matrix.csv")
 metadata_10m_45 <- read.csv("v2_V4Full_data/v2_10m_45bp_97_metadata.csv")
@@ -217,17 +217,6 @@ prec_p <- ggplot(snp_res_out, aes(x = Depth, y = Precision, fill = Aln_len))+
   ylim(c(0,1))+
   labs(fill = "Minimum\nAlignment\nLength")
 
-### F1 Score 
-f1_p <- ggplot(snp_res_out, aes(x = Depth, y = F1_score, fill = Aln_len))+
-  geom_boxplot()+
-  xlab("Read depth")+
-  ylab("SNV Precision")+
-  ggtitle("B")+
-  scale_fill_okabe_ito()+
-  ylim(c(0,1))+
-  labs(fill = "Minimum\nAlignment\nLength")
-f1_p
-
 ### Publication composite (only precision and recall)
 rec_p | prec_p
 ```
@@ -269,46 +258,6 @@ TP_abund <- A | B | C
 TP_abund
 ```
 
-##### FP composite
-```{r}
-### FP ≤ 2 reads
-D <- ggplot(snp_res_out, aes(x = Depth, y = FP_less_2, fill = Aln_len))+
-  geom_boxplot()+
-  xlab("Read depth")+
-  ylab("FP SNVs <= 2 reads")+
-  ggtitle("D")+
-  scale_fill_okabe_ito()+
-  ylim(0,2500)+
-  theme(legend.position = "None")
-
-### FP ≥3 and ≤ 5 reads
-E <- ggplot(snp_res_out, aes(x = Depth, y = FP_3_to_5, fill = Aln_len))+
-  geom_boxplot()+
-  xlab("Read depth")+
-  ylab("FP SNVs >= 3 & <= 5 reads")+
-  ggtitle("E")+
-  scale_fill_okabe_ito()+
-  ylim(c(0,2500))+
-  theme(legend.position = "None")
-
-### FP ≥ 6 reads 
-F1 <- ggplot(snp_res_out, aes(x = Depth, y = FP_more_6, fill = Aln_len))+
-  geom_boxplot()+
-  xlab("Read depth")+
-  ylab("FP SNVs >= 6 reads")+
-  ggtitle("F")+
-  scale_fill_okabe_ito()+
-  ylim(c(0,2500))+
-  labs(fill = "Minimum\nAlignment\nLength")
-FP_abund <- D | E | F1
-FP_abund
-```
-
-##### Composite Supplemental Figure
-```{r}
-abund_comp <- TP_abund / FP_abund
-abund_comp
-```
 
 ##### Data tables
 ```{r}
@@ -320,54 +269,6 @@ snp_res_out |> group_by(Depth, Aln_len)|>
             meanRec = mean(Recall),
             meanPre = mean(Precision),
             meanF1 = mean(F1_score))
-
-### TP Table
-snp_res_out |> group_by(Depth) |>
-  summarise(avg_lt2 = mean(TP_less_2),
-            sd_lt2 = sd(TP_less_2),
-            avg_3t5 = mean(TP_3_to_5),
-            sd_3t5 = sd(TP_3_to_5),
-            avg_mt6 = mean(TP_more_6),
-            sd_mt6 = sd(TP_more_6))
-
-### TP Proportions table 
-snp_res_out |> group_by(Depth) |>
-  summarise(avg_lt2 = mean(TP_less_2/Cap_tp_snps),
-            sd_lt2 = sd(TP_less_2/Cap_tp_snps),
-            avg_3t5 = mean(TP_3_to_5/Cap_tp_snps),
-            sd_3t5 = sd(TP_3_to_5/Cap_tp_snps),
-            avg_mt6 = mean(TP_more_6/Cap_tp_snps),
-            sd_mt6 = sd(TP_more_6/Cap_tp_snps))
-
-### TP Table w length
-snp_res_out |> group_by(Depth, Aln_len) |>
-  summarise(avg_lt2 = mean(TP_less_2),
-            sd_lt2 = sd(TP_less_2),
-            avg_3t5 = mean(TP_3_to_5),
-            sd_3t5 = sd(TP_3_to_5),
-            avg_mt6 = mean(TP_more_6),
-            sd_mt6 = sd(TP_more_6))
-
-### FP Table
-snp_res_out |> group_by(Depth) |>
-  summarise(avg_lt2 = mean(FP_less_2),
-            sd_lt2 = sd(FP_less_2),
-            avg_3t5 = mean(FP_3_to_5),
-            sd_3t5 = sd(FP_3_to_5),
-            avg_mt6 = mean(FP_more_6),
-            sd_mt6 = sd(FP_more_6))
-
-### Prop TP depth 
-
-
-### Prop FP depth 
-snp_res_out |> group_by(Depth) |>
-  summarise(avg_lt2 = mean(FP_less_2/False_positives),
-            sd_lt2 = sd(FP_less_2/False_positives),
-            avg_3t5 = mean(FP_3_to_5/False_positives),
-            sd_3t5 = sd(FP_3_to_5/False_positives),
-            avg_mt6 = mean(FP_more_6/False_positives),
-            sd_mt6 = sd(FP_more_6/False_positives))
 
 # Set 1 statistics 
 n_distinct(tp_data1$acc) # 1072, 5933 SNVs

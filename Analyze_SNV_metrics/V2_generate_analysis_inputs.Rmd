@@ -1,0 +1,430 @@
+---
+title: "V2_generate_analysis_inputs"
+author: "Jared G. Young"
+date: "2026-08-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Prepare input files
+This script is to prepare input files for SNP-caller and benchmarking. Cheifly, this will be to calculate true-positive (theoretical) results and compare it against the actual SNP-calling approach. 
+
+As inputs, I will have several files: 
+
+- TP_snp_positions = the accessions and injected SNP positions that will make up the theoretical True Positive SNPs to be detected at different levels. 
+
+- Injected ARGs = a csv file containing the ARGs that were injected into each input file. As such, only a subset of true-positive SNPs should be found in each mock sample. 
+
+What I want: a matrix of the true-positive SNPs (binary, where 0 = not inserted and 1 = inserted) that can be further parsed to calculate how many of the true positive SNPs were actually captured. 
+
+# Write preparation scripts
+## One-based data
+Here, I am converting the True_positive SNP file into an annotation structure: 
+### Reorder for gene/snp set 1: 
+```{r}
+# load data 
+tpsnp_key <- read.csv("v2_tp_snp_data/set_01_one_based_SNP_key.csv")
+# load packages
+library(tidyr)
+library(dplyr)
+library(stringr)
+# copy header line to split
+tpsnp_key$headtosplit <- tpsnp_key$header
+
+# Split_header
+tpsnp_key_split <- tpsnp_key |> 
+  separate_wider_delim(headtosplit, delim = "|", names = c("acc","type","class","mechanism","group"))
+tpsnp_key_split$acc_dup <- tpsnp_key_split$acc
+tpsnp_key_split$group_dup <- tpsnp_key_split$group
+# concat group-acc
+tpsnp_key_split <- tpsnp_key_split |> mutate(acc_dup = str_remove_all(acc_dup, "MEG_"))
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("grpacc",group_dup,acc_dup, sep = "-")
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("snp_ann",grpacc,reference_nucleotide,one_based_position,variant_nucleotide, sep = "_")
+# Re_concat columns to create SNP headers: 
+snp_heads <- tpsnp_key_split |>
+  unite("snp_header",acc,type,class,mechanism,group,acc,snp_ann, sep = "|", remove = FALSE)
+
+# Re-order columns to make a header file 
+snp_heads <- snp_heads |> relocate(acc, .after = group)
+snp_heads <- snp_heads |> relocate(snp_ann, .after = acc)
+
+set1_snps <- snp_heads
+# save_rds
+#saveRDS(snp_heads, file = "V2_benchmark_data/set1_v4_snp_annotations.rds") # done 8/3/2026
+# save csv
+# write.csv(snp_heads, "V2_benchmark_data/set1_v4_snp_annotations.csv", row.names = FALSE) # done 8/3/2026
+```
+
+### Make yes/no matrix for set1 input fasta files
+```{r}
+set1_genes <- read.csv("v2_tp_snp_data/set_01_annotations.csv")
+R01_genes <- read.csv("v2_tp_snp_data/R01_set1_gene_coord.csv")
+# Make new data frame that has a column for each repeat
+## R01
+### Genes
+R01_anns <- as.list(R01_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R01 = as.integer(header %in% R01_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R01 = as.integer(header %in% R01_anns))
+rm(R01_anns,R01_genes)
+
+## R02 
+R02_genes <- read.csv("v2_tp_snp_data/R02_set1_gene_coord.csv")
+### Genes
+R02_anns <- as.list(R02_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R02 = as.integer(header %in% R02_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R02 = as.integer(header %in% R02_anns))
+rm(R02_anns,R02_genes)
+
+## R03 
+R03_genes <- read.csv("v2_tp_snp_data/R03_set1_gene_coord.csv")
+### Genes
+R03_anns <- as.list(R03_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R03 = as.integer(header %in% R03_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R03 = as.integer(header %in% R03_anns))
+rm(R03_anns,R03_genes)
+
+## R04 
+R04_genes <- read.csv("v2_tp_snp_data/R04_set1_gene_coord.csv")
+### Genes
+R04_anns <- as.list(R04_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R04 = as.integer(header %in% R04_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R04 = as.integer(header %in% R04_anns))
+rm(R04_anns,R04_genes)
+
+## R05 
+R05_genes <- read.csv("v2_tp_snp_data/R05_set1_gene_coord.csv")
+### Genes
+R05_anns <- as.list(R05_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R05 = as.integer(header %in% R05_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R05 = as.integer(header %in% R05_anns))
+rm(R05_anns,R05_genes)
+
+# save_rds
+#saveRDS(set1_genes, file = "V2_benchmark_data/set1_v4_R_gene_pa.rds") # done 8/3/2026
+#saveRDS(set1_snps, file = "V2_benchmark_data/set1_v4_R_snp_onebased_pa.rds") # done 8/3/2026
+# save csv
+#write.csv(set1_genes, "V2_benchmark_data/set1_v4_R_gene_pa.csv", row.names = FALSE) # done 8/3/2026
+#write.csv(set1_snps, "V2_benchmark_data/set1_v4_R_snp_onebased_pa.csv", row.names = FALSE) # done 8/3/2026
+```
+
+### Repeat for set2 genes/snps
+```{r}
+# load data 
+tpsnp_key <- read.csv("v2_tp_snp_data/set_02_one_based_SNP_key.csv")
+# copy header line to split
+tpsnp_key$headtosplit <- tpsnp_key$header
+
+# Split_header
+tpsnp_key_split <- tpsnp_key |> 
+  separate_wider_delim(headtosplit, delim = "|", names = c("acc","type","class","mechanism","group"))
+tpsnp_key_split$acc_dup <- tpsnp_key_split$acc
+tpsnp_key_split$group_dup <- tpsnp_key_split$group
+# concat group-acc
+tpsnp_key_split <- tpsnp_key_split |> mutate(acc_dup = str_remove_all(acc_dup, "MEG_"))
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("grpacc",group_dup,acc_dup, sep = "-")
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("snp_ann",grpacc,reference_nucleotide,one_based_position,variant_nucleotide, sep = "_")
+# Re_concat columns to create SNP headers: 
+snp_heads <- tpsnp_key_split |>
+  unite("snp_header",acc,type,class,mechanism,group,acc,snp_ann, sep = "|", remove = FALSE)
+
+# Re-order columns to make a header file 
+snp_heads <- snp_heads |> relocate(acc, .after = group)
+snp_heads <- snp_heads |> relocate(snp_ann, .after = acc)
+
+set2_snps <- snp_heads
+# save_rds
+#saveRDS(snp_heads, file = "V2_benchmark_data/set2_v4_snp_annotations_onebased.rds") # done 8/3/2026
+# save csv
+#write.csv(snp_heads, "V2_benchmark_data/set2_v4_snp_annotations_onebased.csv", row.names = FALSE) # done 8/3/2026
+```
+
+### Make yes/no matrix for set2 input fasta files
+```{r}
+set2_genes <- read.csv("v2_tp_snp_data/set_02_annotations.csv")
+R06_genes <- read.csv("v2_tp_snp_data/R06_set2_gene_coords.csv")
+# Make new data frame that has a column for each repeat
+## R06
+### Genes
+R06_anns <- as.list(R06_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R06 = as.integer(header %in% R06_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R06 = as.integer(header %in% R06_anns))
+rm(R06_anns,R06_genes)
+
+## R07 
+R07_genes <- read.csv("v2_tp_snp_data/R07_set2_gene_coords.csv")
+### Genes
+R07_anns <- as.list(R07_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R07 = as.integer(header %in% R07_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R07 = as.integer(header %in% R07_anns))
+rm(R07_anns,R07_genes)
+
+## R08 
+R08_genes <- read.csv("v2_tp_snp_data/R08_set2_gene_coords.csv")
+### Genes
+R08_anns <- as.list(R08_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R08 = as.integer(header %in% R08_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R08 = as.integer(header %in% R08_anns))
+rm(R08_anns,R08_genes)
+
+## R09 
+R09_genes <- read.csv("v2_tp_snp_data/R09_set2_gene_coords.csv")
+### Genes
+R09_anns <- as.list(R09_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R09 = as.integer(header %in% R09_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R09 = as.integer(header %in% R09_anns))
+rm(R09_anns,R09_genes)
+
+## R10 
+R10_genes <- read.csv("v2_tp_snp_data/R10_set2_gene_coords.csv")
+### Genes
+R10_anns <- as.list(R10_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R10 = as.integer(header %in% R10_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R10 = as.integer(header %in% R10_anns))
+rm(R10_anns,R10_genes)
+
+# save_rds
+#saveRDS(set2_genes, file = "V2_benchmark_data/set2_v4_R_gene_pa.rds") # done 8/3/2026
+#saveRDS(set2_snps, file = "V2_benchmark_data/set2_v4_R_snp_onebased_pa.rds") # done 8/3/2026
+# save csv
+#write.csv(set2_genes, "V2_benchmark_data/set2_v4_R_gene_pa.csv", row.names = FALSE) # done 8/3/2026
+#write.csv(set2_snps, "V2_benchmark_data/set2_v4_R_snp_onebased_pa.csv", row.names = FALSE) # done 8/3/2026
+```
+
+## Repeat for 0-based data
+#### Reorder for gene/snp set 1: 
+```{r}
+# load data 
+tpsnp_key <- read.csv("v2_tp_snp_dataset_01_zero_based_SNP_key.csv")
+
+# copy header line to split
+tpsnp_key$headtosplit <- tpsnp_key$header
+
+# Split_header
+tpsnp_key_split <- tpsnp_key |> 
+  separate_wider_delim(headtosplit, delim = "|", names = c("acc","type","class","mechanism","group"))
+tpsnp_key_split$acc_dup <- tpsnp_key_split$acc
+tpsnp_key_split$group_dup <- tpsnp_key_split$group
+# concat group-acc
+tpsnp_key_split <- tpsnp_key_split |> mutate(acc_dup = str_remove_all(acc_dup, "MEG_"))
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("grpacc",group_dup,acc_dup, sep = "-")
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("snp_ann",grpacc,reference_nucleotide,zero_based_position,variant_nucleotide, sep = "_")
+# Re_concat columns to create SNP headers: 
+snp_heads <- tpsnp_key_split |>
+  unite("snp_header",acc,type,class,mechanism,group,acc,snp_ann, sep = "|", remove = FALSE)
+
+# Re-order columns to make a header file 
+snp_heads <- snp_heads |> relocate(acc, .after = group)
+snp_heads <- snp_heads |> relocate(snp_ann, .after = acc)
+
+set1_snps <- snp_heads
+# save_rds
+##saveRDS(snp_heads, file = "zb_benchmark_data/set1_v4_snp_annotations_zerobased.rds") # done 7/24/2026
+# save csv
+##write.csv(snp_heads, "zb_benchmark_data/set1_v4_snp_annotations_zerobased.csv", row.names = FALSE) # done 7/24/2026
+```
+
+### Make yes/no matrix for set1 input fasta files
+```{r}
+set1_genes <- read.csv("v2_tp_snp_dataset_01_arg_annotations.csv")
+R01_genes <- read.csv("v2_tp_snp_data/R01_set1_gene_coords.csv")
+# Make new data frame that has a column for each repeat
+## R01
+### Genes
+R01_anns <- as.list(R01_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R01 = as.integer(header %in% R01_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R01 = as.integer(header %in% R01_anns))
+rm(R01_anns,R01_genes)
+
+## R02 
+R02_genes <- read.csv("v2_tp_snp_data/R02_set1_gene_coord.csv")
+### Genes
+R02_anns <- as.list(R02_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R02 = as.integer(header %in% R02_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R02 = as.integer(header %in% R02_anns))
+rm(R02_anns,R02_genes)
+
+## R03 
+R03_genes <- read.csv("v2_tp_snp_data/R03_set1_gene_coord.csv")
+### Genes
+R03_anns <- as.list(R03_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R03 = as.integer(header %in% R03_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R03 = as.integer(header %in% R03_anns))
+rm(R03_anns,R03_genes)
+
+## R04 
+R04_genes <- read.csv("v2_tp_snp_data/R04_set1_gene_coord.csv")
+### Genes
+R04_anns <- as.list(R04_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R04 = as.integer(header %in% R04_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R04 = as.integer(header %in% R04_anns))
+rm(R04_anns,R04_genes)
+
+## R05 
+R05_genes <- read.csv("v2_tp_snp_data/R05_set1_gene_coord.csv")
+### Genes
+R05_anns <- as.list(R05_genes$inserted_gene_id)
+set1_genes <- set1_genes |> 
+  mutate(R05 = as.integer(header %in% R05_anns))
+### SNPs 
+set1_snps <- set1_snps |>
+  mutate(R05 = as.integer(header %in% R05_anns))
+rm(R05_anns,R05_genes)
+
+# save_rds
+saveRDS(set1_genes, file = "V2_benchmark_data/set1_v4_R_gene_pa.rds") # done 7/24/2026
+saveRDS(set1_snps, file = "V2_benchmark_data/set1_v4_R_snp_zerobased_pa.rds") # done 7/24/2026
+# save csv
+write.csv(set1_genes, "V2_benchmark_data/set1_v4_R_gene_pa.csv", row.names = FALSE) # done 7/24/2026
+write.csv(set1_snps, "V2_benchmark_data/set1_v4_R_snp_zerobased_pa.csv", row.names = FALSE) # done 7/24/2026
+```
+
+### Repeat for set2 genes/snps
+```{r}
+# load data 
+tpsnp_key <- read.csv("tp_snp_data/set_02_data/set_02_zero_based_SNP_key.csv")
+# copy header line to split
+tpsnp_key$headtosplit <- tpsnp_key$header
+
+# Split_header
+tpsnp_key_split <- tpsnp_key |> 
+  separate_wider_delim(headtosplit, delim = "|", names = c("acc","type","class","mechanism","group"))
+tpsnp_key_split$acc_dup <- tpsnp_key_split$acc
+tpsnp_key_split$group_dup <- tpsnp_key_split$group
+# concat group-acc
+tpsnp_key_split <- tpsnp_key_split |> mutate(acc_dup = str_remove_all(acc_dup, "MEG_"))
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("grpacc",group_dup,acc_dup, sep = "-")
+tpsnp_key_split <- tpsnp_key_split |>
+  unite("snp_ann",grpacc,reference_nucleotide,zero_based_position,variant_nucleotide, sep = "_")
+# Re_concat columns to create SNP headers: 
+snp_heads <- tpsnp_key_split |>
+  unite("snp_header",acc,type,class,mechanism,group,acc,snp_ann, sep = "|", remove = FALSE)
+
+# Re-order columns to make a header file 
+snp_heads <- snp_heads |> relocate(acc, .after = group)
+snp_heads <- snp_heads |> relocate(snp_ann, .after = acc)
+
+set2_snps <- snp_heads
+# save_rds
+##saveRDS(snp_heads, file = "zb_benchmark_data/set2_v4_snp_annotations_zerobased.rds") # done 7/24/2026
+# save csv
+##write.csv(snp_heads, "zb_benchmark_data/set2_v4_snp_annotations_zerobased.csv", row.names = FALSE) # done 7/24/2026
+```
+
+### Make yes/no matrix for set2 input fasta files
+```{r}
+set2_genes <- read.csv("tp_snp_data/set_02_data/set_02_annotations.csv")
+R06_genes <- read.csv("v2_tp_snp_data/R06_set2_gene_coords.csv")
+# Make new data frame that has a column for each repeat
+## R06
+### Genes
+R06_anns <- as.list(R06_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R06 = as.integer(header %in% R06_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R06 = as.integer(header %in% R06_anns))
+rm(R06_anns,R06_genes)
+
+## R07 
+R07_genes <- read.csv("v2_tp_snp_data/R07_set2_gene_coords.csv")
+### Genes
+R07_anns <- as.list(R07_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R07 = as.integer(header %in% R07_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R07 = as.integer(header %in% R07_anns))
+rm(R07_anns,R07_genes)
+
+## R08 
+R08_genes <- read.csv("v2_tp_snp_data/R08_set2_gene_coords.csv")
+### Genes
+R08_anns <- as.list(R08_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R08 = as.integer(header %in% R08_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R08 = as.integer(header %in% R08_anns))
+rm(R08_anns,R08_genes)
+
+## R09 
+R09_genes <- read.csv("v2_tp_snp_data/R09_set2_gene_coords.csv")
+### Genes
+R09_anns <- as.list(R09_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R09 = as.integer(header %in% R09_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R09 = as.integer(header %in% R09_anns))
+rm(R09_anns,R09_genes)
+
+## R10 
+R10_genes <- read.csv("v2_tp_snp_data/R10_set2_gene_coords.csv")
+### Genes
+R10_anns <- as.list(R10_genes$inserted_gene_id)
+set2_genes <- set2_genes |> 
+  mutate(R10 = as.integer(header %in% R10_anns))
+### SNPs 
+set2_snps <- set2_snps |>
+  mutate(R10 = as.integer(header %in% R10_anns))
+rm(R10_anns,R10_genes)
+
+# save_rds
+##saveRDS(set2_genes, file = "zb_benchmark_data/set2_v4_R_gene_pa.rds") # done 7/24/2026
+##saveRDS(set2_snps, file = "zb_benchmark_data/set2_v4_R_snp_zerobased_pa.rds") # done 7/24/2026
+# save csv
+##write.csv(set2_genes, "zb_benchmark_data/set2_v4_R_gene_pa.csv", row.names = FALSE) # done 7/24/2026
+##write.csv(set2_snps, "zb_benchmark_data/set2_v4_R_snp_zerobased_pa.csv", row.names = FALSE) # done 7/24/2026
+```

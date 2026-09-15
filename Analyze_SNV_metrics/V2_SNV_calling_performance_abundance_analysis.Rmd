@@ -1,0 +1,387 @@
+---
+title: "V2_SNV_calling_performance_abundance_analysis"
+author: "Jared G. Young"
+date: "2026-09-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### load packages
+```{r}
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(forcats)
+library(ggokabeito)
+library(patchwork)
+```
+
+#### Load Data
+```{r}
+tp_data1 <- readRDS("V2_benchmark_data/set1_v4_R_snp_onebased_pa.rds")
+tp_data2 <- readRDS("V2_benchmark_data/set2_v4_R_snp_onebased_pa.rds")
+snp_accs <- readRDS("v2_V4Full_data/draft2_v4_snpheads.rds")
+## Data inputs
+called_snps_10m_45 <- read.csv("v2_V4Full_data/v2_10M_45bp_97_count_matrix.csv")
+metadata_10m_45 <- read.csv("v2_V4Full_data/v2_10m_45bp_97_metadata.csv")
+called_snps_10m_75 <- read.csv("v2_V4Full_data/rd010_75bp_97ani_V4Full_count_matrix.csv")
+metadata_10m_75 <- read.csv("v2_V4Full_data/rd010m_75bp_97_V4Full_metadata.csv")
+called_snps_10m_100 <- read.csv("v2_V4Full_data/rd010_100bp_97ani_V4Full_count_matrix.csv")
+metadata_10m_100 <- read.csv("v2_V4Full_data/rd010m_100bp_97_V4Full_metadata.csv")
+called_snps_50m_45 <- read.csv("v2_V4Full_data/rd050m_45bp_97ani_V4Full_ARG_SNP_count_matrix.csv")
+
+called_snps_50m_45 <- read.csv("v2_V4Full_data/rd050m_45bp_97ani_V4Full_ARG_SNP_count_matrix.csv")
+metadata_50m_45 <- read.csv("v2_V4Full_data/rd050m_45bp_97_V4Full_metadata.csv")
+called_snps_50m_75 <- read.csv("v2_V4Full_data/rd050_75bp_97ani_V4Full_count_matrix.csv")
+metadata_50m_75 <- read.csv("v2_V4Full_data/rd050m_75bp_97_V4Full_metadata.csv")
+called_snps_50m_100 <- read.csv("v2_V4Full_data/rd050_100bp_97ani_V4Full_count_matrix.csv")
+metadata_50m_100 <- read.csv("v2_V4Full_data/rd050m_100bp_97_V4Full_metadata.csv")
+
+called_snps_100m_45 <- read.csv("v2_V4Full_data/rd100_45bp_97ani_V4Full_count_matrix.csv")
+metadata_100m_45 <- read.csv("v2_V4Full_data/rd100m_45bp_97_V4Full_metadata.csv")
+called_snps_100m_75 <- read.csv("v2_V4Full_data/rd100_75bp_97ani_V4Full_count_matrix.csv")
+metadata_100m_75 <- read.csv("v2_V4Full_data/rd100m_75bp_97_V4Full_metadata.csv")
+called_snps_100m_100 <- read.csv("v2_V4Full_data/rd100_100bp_97ani_V4Full_count_matrix.csv")
+metadata_100m_100 <- read.csv("v2_V4Full_data/rd100m_100bp_97_V4Full_metadata.csv")
+```
+
+#### Load Functions
+```{r}
+library(tidyr)
+library(dplyr)
+library(stringr)
+
+prepare_snp_data <-function(SNP_df) {
+  # Copy annotation column 
+  SNP_df$ann_rep <- SNP_df$SNP_accession
+  # Separate annotation
+  SNP_df <- SNP_df |> 
+    separate_wider_delim(ann_rep, delim = "|", names = c("acc","type","class","mechanism","group","acc2","snp"))
+  # Separate snp annotation
+  SNP_df <- SNP_df |> 
+    separate_wider_delim(snp, delim = "_", names = c("grp_acc","ref_nuc","pos","var_nuc"))
+  # Nucleotide to upercase 
+  SNP_df$ref_nuc <- toupper(SNP_df$ref_nuc)
+  SNP_df$var_nuc <- toupper(SNP_df$var_nuc)
+  # Re-make meg ann
+  SNP_df <- SNP_df |>
+    unite("meg_ann",acc,type,class,mechanism,group, sep = "|", remove = FALSE)
+  # Remake SNP ann
+  SNP_df <- SNP_df |>
+    unite("SNP",grp_acc,ref_nuc,pos,var_nuc,sep="_")
+  parsed_SNP_df <- SNP_df |>
+    unite("SNP_ann",acc,type,class,mechanism,group,SNP,sep="|")
+  return(parsed_SNP_df)
+}
+
+get_snp_counts3 <- function(metadata,called_snps,tp1,tp2,snp_accs) {
+  nrows <- 10
+  final_df <- data.frame(
+    SampleID = character(nrows),
+    Repeat = character(nrows),
+    All_tp_snps = numeric(nrows),
+    All_tp_genes = numeric(nrows),
+    All_cap_snps = numeric(nrows),
+    Cap_tp_genes = numeric(nrows),
+    Cap_tp_snps = numeric(nrows),
+    TP_less_2 = numeric(nrows),
+    TP_3_to_5 = numeric(nrows),
+    TP_more_6 = numeric(nrows),
+    FP_less_2 = numeric(nrows),
+    FP_3_to_5 = numeric(nrows),
+    FP_more_6 = numeric(nrows)
+  )
+  for (i in 1:nrow(metadata)) {
+    val1 <- metadata$SampleID[i]
+    val2 <- metadata$Repeat[i]
+    R_snps <- called_snps[,c("SNP_accession",paste0(val1),"meg_ann","SNP_ann")]
+    if (metadata$ARG_set[i] == "Set1") {
+      R_tp <- tp1[,c("header","snp_header",paste0(val2))] #filter tp1 for sample
+      R_tp_filt <- R_tp |> dplyr::filter(!!sym(val2) == 1) # get tp values for sample
+      R_snps_filt <- R_snps |> dplyr::filter(!!sym(val1) >= 1) # get nonzero vals
+      R_snps_filt <- R_snps_filt |> dplyr::filter(!meg_ann %in% snp_accs) # remove SNPconf
+      R_genes_list <- as.list(R_tp_filt$header)
+      R_snps_genefilt <- R_snps_filt |> dplyr::filter(meg_ann %in% R_genes_list)
+      tp_snp_list <- as.list(R_tp_filt$snp_header)
+      R_snps_snpfilt <- R_snps_genefilt |> dplyr::filter(SNP_ann %in% tp_snp_list)
+      FP_snps <- R_snps_filt |> dplyr::filter(!SNP_ann %in% tp_snp_list) # get non-tp SNPs
+    } else {
+      R_tp <- tp2[,c("header","snp_header",paste0(val2))]
+      R_tp_filt <- R_tp |> dplyr::filter(!!sym(val2) == 1)
+      R_snps_filt <- R_snps |> dplyr::filter(!!sym(val1) >= 1)
+      R_snps_filt <- R_snps_filt |> dplyr::filter(!meg_ann %in% snp_accs)
+      R_genes_list <- as.list(R_tp_filt$header)
+      R_snps_genefilt <- R_snps_filt |> dplyr::filter(meg_ann %in% R_genes_list)
+      tp_snp_list <- as.list(R_tp_filt$snp_header)
+      R_snps_snpfilt <- R_snps_genefilt |> dplyr::filter(SNP_ann %in% tp_snp_list)
+      FP_snps <- R_snps_filt |> dplyr::filter(!SNP_ann %in% tp_snp_list) # get non-tp SNPs
+    }
+    All_tp_snps <- nrow(R_tp_filt) # save for metadata
+    All_tp_genes <- n_distinct(R_tp_filt$header) # save for metadata
+    All_cap_snps <- nrow(R_snps_filt) # save for metadate 
+    Cap_tp_genes <- n_distinct(R_snps_genefilt$meg_ann) # Save for metadata
+    Cap_tp_snps <- nrow(R_snps_snpfilt) # save for metadata
+    TP_less_2 <- nrow(R_snps_snpfilt |> dplyr::filter(!!sym(val1) <= 2))
+    TP_3_to_5 <- nrow(R_snps_snpfilt |> dplyr::filter(!!sym(val1) >= 3 & !!sym(val1) <=5))
+    TP_more_6 <- nrow(R_snps_snpfilt |> dplyr::filter(!!sym(val1) >= 6))
+    FP_less_2 <- nrow(FP_snps |> dplyr::filter(!!sym(val1) <= 2))
+    FP_3_to_5 <- nrow(FP_snps |> dplyr::filter(!!sym(val1) >= 3 & !!sym(val1) <=5))
+    FP_more_6 <- nrow(FP_snps |> dplyr::filter(!!sym(val1) >= 6))
+    final_df[i, ] <- list(val1,val2,All_tp_snps,All_tp_genes,All_cap_snps,Cap_tp_genes,Cap_tp_snps,TP_less_2,TP_3_to_5,TP_more_6,FP_less_2,FP_3_to_5,FP_more_6)
+  }
+  return(final_df)
+}
+
+benchmark_metrics2 <- function(input_df) {
+  ## Recall = TP/(TP+FN), FN = All_tp - Cap_tp
+  input_df$False_negatives <- input_df$All_tp_snps - input_df$Cap_tp_snps
+  input_df$Recall <- input_df$Cap_tp_snps/(input_df$Cap_tp_snps + input_df$False_negatives)
+  ## Precision = TP/(TP+FP)
+  input_df$False_positives <- input_df$All_cap_snps - input_df$Cap_tp_snps
+  input_df$Precision <- input_df$Cap_tp_snps/(input_df$Cap_tp_snps + input_df$False_positives)
+  ## F1 = 2(TP)/((2TP)+FP+FN)
+  input_df$F1_score <- (2*input_df$Cap_tp_snps) / ((2*input_df$Cap_tp_snps) + input_df$False_positives + input_df$False_negatives)
+  ## Widen metadata annotation 
+  input_df$Annotation <- input_df$SampleID
+  output_df <- input_df |> 
+    tidyr::separate_wider_delim(Annotation, delim = "_", names = c("Sample","Depth","Rep","Aln_len","ANI","DB"))
+  
+  return(output_df)
+}
+```
+
+#### Run Functions
+```{r}
+## Process 5M data
+prep_snp_10m_45 <- prepare_snp_data(called_snps_10m_45)
+snp_data_10m_45 <- get_snp_counts3(metadata_10m_45,prep_snp_10m_45,tp_data1,tp_data2,snp_accs)
+prep_snp_10m_75 <- prepare_snp_data(called_snps_10m_75)
+snp_data_10m_75 <- get_snp_counts3(metadata_10m_75,prep_snp_10m_75,tp_data1,tp_data2,snp_accs)
+prep_snp_10m_100 <- prepare_snp_data(called_snps_10m_100)
+snp_data_10m_100 <- get_snp_counts3(metadata_10m_100,prep_snp_10m_100,tp_data1,tp_data2,snp_accs)
+merge_snp_10m <- rbind(snp_data_10m_45,snp_data_10m_75,snp_data_10m_100)
+
+## Process 25M data
+prep_snp_50m_45 <- prepare_snp_data(called_snps_50m_45)
+snp_data_50m_45 <- get_snp_counts3(metadata_50m_45,prep_snp_50m_45,tp_data1,tp_data2,snp_accs)
+prep_snp_50m_75 <- prepare_snp_data(called_snps_50m_75)
+snp_data_50m_75 <- get_snp_counts3(metadata_50m_75,prep_snp_50m_75,tp_data1,tp_data2,snp_accs)
+prep_snp_50m_100 <- prepare_snp_data(called_snps_50m_100)
+snp_data_50m_100 <- get_snp_counts3(metadata_50m_100,prep_snp_50m_100,tp_data1,tp_data2,snp_accs)
+merge_snp_50m <- rbind(snp_data_50m_45,snp_data_50m_75,snp_data_50m_100)
+
+## Process 50M data
+prep_snp_100m_45 <- prepare_snp_data(called_snps_100m_45)
+snp_data_100m_45 <- get_snp_counts3(metadata_100m_45,prep_snp_100m_45,tp_data1,tp_data2,snp_accs)
+prep_snp_100m_75 <- prepare_snp_data(called_snps_100m_75)
+snp_data_100m_75 <- get_snp_counts3(metadata_100m_75,prep_snp_100m_75,tp_data1,tp_data2,snp_accs)
+prep_snp_100m_100 <- prepare_snp_data(called_snps_100m_100)
+snp_data_100m_100 <- get_snp_counts3(metadata_100m_100,prep_snp_100m_100,tp_data1,tp_data2,snp_accs)
+merge_snp_100m <- rbind(snp_data_100m_45,snp_data_100m_75,snp_data_100m_100)
+
+## Combine outputs
+snp_data_comb <- rbind(merge_snp_10m,merge_snp_50m,merge_snp_100m)
+snp_res_out <- benchmark_metrics2(snp_data_comb)
+```
+
+#### Precision, Recall, and F1
+```{r}
+### Prepare plotting data 
+snp_res_out$Depth <- fct_recode(snp_res_out$Depth,
+                                 "5M" = "rd010m",
+                                 "25M" = "rd050m",
+                                 "50M" = "rd100m")
+snp_res_out <- snp_res_out |> mutate(Aln_len = factor(Aln_len, levels = c("45bp","75bp","100bp")))
+
+### Recall 
+rec_p <- ggplot(snp_res_out, aes(x = Depth, y = Recall, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("SNV Recall")+
+  ggtitle("A")+
+  scale_fill_okabe_ito()+
+  ylim(c(0,1))+
+  theme(legend.position = "None")
+
+### Precision
+prec_p <- ggplot(snp_res_out, aes(x = Depth, y = Precision, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("SNV Precision")+
+  ggtitle("B")+
+  scale_fill_okabe_ito()+
+  ylim(c(0,1))+
+  labs(fill = "Minimum\nAlignment\nLength")
+
+### F1 Score 
+f1_p <- ggplot(snp_res_out, aes(x = Depth, y = F1_score, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("SNV Precision")+
+  ggtitle("B")+
+  scale_fill_okabe_ito()+
+  ylim(c(0,1))+
+  labs(fill = "Minimum\nAlignment\nLength")
+f1_p
+
+### Publication composite (only precision and recall)
+rec_p | prec_p
+```
+
+#### Investigate abundance distributions 
+##### TP Composite
+```{r}
+### TP ≤ 2 reads
+A <- ggplot(snp_res_out, aes(x = Depth, y = TP_less_2, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("TP SNVs <= 2 reads")+
+  ggtitle("A")+
+  scale_fill_okabe_ito()+
+  ylim(0,3200)+
+  theme(legend.position = "None")
+
+### TP ≥3 and ≤5 reads
+B <- ggplot(snp_res_out, aes(x = Depth, y = TP_3_to_5, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("TP SNVs >= 3 & <= 5 reads")+
+  ggtitle("B")+
+  scale_fill_okabe_ito()+
+  ylim(0,3200)+
+  theme(legend.position = "None")
+
+### TP ≥ 6 reads
+C <- ggplot(snp_res_out, aes(x = Depth, y = TP_more_6, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("TP SNVs >= 6 reads")+
+  ggtitle("C")+
+  scale_fill_okabe_ito()+
+  ylim(0,3200)+
+  labs(fill = "Minimum\nAlignment\nLength")
+TP_abund <- A | B | C
+
+TP_abund
+```
+
+##### FP composite
+```{r}
+### FP ≤ 2 reads
+D <- ggplot(snp_res_out, aes(x = Depth, y = FP_less_2, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("FP SNVs <= 2 reads")+
+  ggtitle("D")+
+  scale_fill_okabe_ito()+
+  ylim(0,2500)+
+  theme(legend.position = "None")
+
+### FP ≥3 and ≤ 5 reads
+E <- ggplot(snp_res_out, aes(x = Depth, y = FP_3_to_5, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("FP SNVs >= 3 & <= 5 reads")+
+  ggtitle("E")+
+  scale_fill_okabe_ito()+
+  ylim(c(0,2500))+
+  theme(legend.position = "None")
+
+### FP ≥ 6 reads 
+F1 <- ggplot(snp_res_out, aes(x = Depth, y = FP_more_6, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("FP SNVs >= 6 reads")+
+  ggtitle("F")+
+  scale_fill_okabe_ito()+
+  ylim(c(0,2500))+
+  labs(fill = "Minimum\nAlignment\nLength")
+FP_abund <- D | E | F1
+FP_abund
+```
+
+##### Composite Supplemental Figure
+```{r}
+abund_comp <- TP_abund / FP_abund
+abund_comp
+```
+
+##### Data tables
+```{r}
+### Some basic statistics
+snp_res_out |> group_by(Depth, Aln_len)|>
+  summarise(meanTP = mean(Cap_tp_snps),
+            meanFN = mean(False_negatives),
+            meanFP = mean(False_positives),
+            meanRec = mean(Recall),
+            meanPre = mean(Precision),
+            meanF1 = mean(F1_score))
+
+### TP Table
+snp_res_out |> group_by(Depth) |>
+  summarise(avg_lt2 = mean(TP_less_2),
+            sd_lt2 = sd(TP_less_2),
+            avg_3t5 = mean(TP_3_to_5),
+            sd_3t5 = sd(TP_3_to_5),
+            avg_mt6 = mean(TP_more_6),
+            sd_mt6 = sd(TP_more_6))
+
+### TP Proportions table 
+snp_res_out |> group_by(Depth) |>
+  summarise(avg_lt2 = mean(TP_less_2/Cap_tp_snps),
+            sd_lt2 = sd(TP_less_2/Cap_tp_snps),
+            avg_3t5 = mean(TP_3_to_5/Cap_tp_snps),
+            sd_3t5 = sd(TP_3_to_5/Cap_tp_snps),
+            avg_mt6 = mean(TP_more_6/Cap_tp_snps),
+            sd_mt6 = sd(TP_more_6/Cap_tp_snps))
+
+### TP Table w length
+snp_res_out |> group_by(Depth, Aln_len) |>
+  summarise(avg_lt2 = mean(TP_less_2),
+            sd_lt2 = sd(TP_less_2),
+            avg_3t5 = mean(TP_3_to_5),
+            sd_3t5 = sd(TP_3_to_5),
+            avg_mt6 = mean(TP_more_6),
+            sd_mt6 = sd(TP_more_6))
+
+### FP Table
+snp_res_out |> group_by(Depth) |>
+  summarise(avg_lt2 = mean(FP_less_2),
+            sd_lt2 = sd(FP_less_2),
+            avg_3t5 = mean(FP_3_to_5),
+            sd_3t5 = sd(FP_3_to_5),
+            avg_mt6 = mean(FP_more_6),
+            sd_mt6 = sd(FP_more_6))
+
+### Prop TP depth 
+
+
+### Prop FP depth 
+snp_res_out |> group_by(Depth) |>
+  summarise(avg_lt2 = mean(FP_less_2/False_positives),
+            sd_lt2 = sd(FP_less_2/False_positives),
+            avg_3t5 = mean(FP_3_to_5/False_positives),
+            sd_3t5 = sd(FP_3_to_5/False_positives),
+            avg_mt6 = mean(FP_more_6/False_positives),
+            sd_mt6 = sd(FP_more_6/False_positives))
+
+# Set 1 statistics 
+n_distinct(tp_data1$acc) # 1072, 5933 SNVs
+set1 <- c("R01","R02","R03","R04","R05")
+set1_data <- snp_res_out |> filter(Repeat %in% set1)
+mean(set1_data$All_tp_snps) # 4860
+sd(set1_data$All_tp_snps) # 38
+mean(set1_data$All_tp_genes) # 878 - no SD 
+
+# Set 2 statistics 
+n_distinct(tp_data2$acc) # 1072, 6000 SNVs 
+set2 <- c("R06","R07","R08","R09","R10")
+set2_data <- snp_res_out |> filter(Repeat %in% set2)
+mean(set2_data$All_tp_snps) # 4940
+sd(set2_data$All_tp_snps) # 41
+mean(set2_data$All_tp_genes) # 878 - no SD 
+```

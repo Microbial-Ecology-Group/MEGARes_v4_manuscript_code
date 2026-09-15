@@ -22,9 +22,9 @@ library(patchwork)
 
 #### Load Data
 ```{r}
-tp_data1 <- readRDS("V2_benchmark_data/set1_v4_R_snp_onebased_pa.rds")
-tp_data2 <- readRDS("V2_benchmark_data/set2_v4_R_snp_onebased_pa.rds")
-snp_accs <- readRDS("V2_benchmark_data/draft2_v4_snpheads.rds")
+tp_data1 <- readRDS("v2_tp_snv_data/set1_v4_R_snp_onebased_pa.rds")
+tp_data2 <- readRDS("v2_tp_snv_data/set2_v4_R_snp_onebased_pa.rds")
+snp_accs <- readRDS("v2_tp_snv_data/draft2_v4_snpheads.rds")
 ## Data inputs
 called_snps_10m_45 <- read.csv("v2_V4Full_data/v2_10M_45bp_97_count_matrix.csv")
 metadata_10m_45 <- read.csv("v2_V4Full_data/v2_10m_45bp_97_metadata.csv")

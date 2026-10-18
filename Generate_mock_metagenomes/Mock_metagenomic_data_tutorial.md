@@ -1,6 +1,8 @@
 ### Introduction
 This a tutorial for making mock-metagenomic data using MEGARes v4 and the bacterial and archaeal genomes (n=19) from the Zymo gut mock (Cat: D6331). The result of this process is 30 mock metagenomes, with n=10 each sequenced to 5M, 25M, and 50M reads per sample, referred to throughout this tutorial as "depth groups". This approach creates mock paired-end samples with a high-degree of randomness. Within each depth group, n=5 inputs share similar antimicrobial resistance gene and ground-truth SNV composition. However, no two inputs have the same exact composition, and the relative abundance of each microbial genome in each mock-metagenome was selected at random. 
 
+An additional set of mock host-read fastq.gz files were also generated based on the human genome (_Homo sapiens_ GRCh38). These mock host reads were merged with the 5M mock metagenome samples to create "high-host" mock samples, with the same ARG read sets. High host samples emulate a 25M read depth. This process is described below. 
+
 The workflow below could be modified to create sets of mock metagenomes with greater similarity, particularly for simulating results from compositionally similar samples, or to test hypotheses related to gene recall across metagenomes with slight deviations in abundance. Lastly, this workflow is run in steps, rather than as a complete pipeline.
 
 ### Step 1: Genome pre-prep: 
@@ -206,7 +208,7 @@ This bash script runs the "Whole_genome_cleaner_v2.py" in a loop, and applies it
 Step 3.2 combines the replaced genomes to one input fasta file. To prepare for step 2.2, it is helpful to have a directory called "unused_genomes/" that contain the genome.fasta files that you also want to include in the mock metagenomic dataset, but do not want to replace genes in. These will be used in the final "input.fasta" file. After running "run_all_genomes.sh", you can copy this "unused_genomes" directory into the replacement_results sub-directory. Unused genomes should include the statement "replaced" prior to ".fasta" in the name. 
 
 #### Step 4: Generate Mock Metagenomic read files. 
-This step was performed with [InSilicoSeq](https://insilicoseq.readthedocs.io/en/latest/iss/install.html), and is fairly straight-forward. InSilicoSeq can be downloaded as a conda environment, as below. 
+Step 4.1: Generate non-host mock reads. This step was performed with [InSilicoSeq](https://insilicoseq.readthedocs.io/en/latest/iss/install.html), and is fairly straight-forward. InSilicoSeq can be downloaded as a conda environment, as below. 
 
 ```
 conda create --name insilicoseq -c bioconda insilicoseq
@@ -242,6 +244,28 @@ The table below specifies the seed used to generate each mock sample:
 | R08   | S008  | 130     | S018   | 140      | S028   | 150      |
 | R09   | S009  | 131     | S019   | 141      | S029   | 151      |
 | R10   | S010  | 132     | S020   | 142      | S030   | 152      |
+
+Step 4.2: Create mock samples with simulated host reads. 
+Using InSilicoSeq, five mock host read-files were generated (H1-H5), each serving as a host "repeat" to generate host variability between samples. Each file was generated to a depth of 20M read (sum = 40M reads across forward and reverse files). Files names were a combination of "host repeat" (H1-H5), seed used to generate the file (S###), and Hsap to denote genome. Files were generated using the following command: 
+
+```
+iss generate -g path/to/GRCh38/mock_host_H#.fasta --n_reads 40M --model NovaSeq --cpus 100 --seed ### --output mock_host_reads/H#_S###_Hsap --store_mutations
+
+## The following seeds were used to generate host reads:
+H1: 121
+H2: 122
+H3: 123
+H4: 124
+H5: 125
+```
+Then, host reads were merged to the 5M mock metagenomes generated in step 4.1. This was done by concatenating R1 to R1 files and R2 to R2 files on an individual basis. This was performed with the following command:
+
+```
+# R1
+cat S###_rd010m_R##_R1.fastq.gz H#_S###_Hsap_R1.fastq.gz > S###_rd010m_R##_H#_R1.fastq.gz
+# R2
+cat S###_rd010m_R##_R2.fastq.gz H#_S###_Hsap_R2.fastq.gz > S###_rd010m_R##_H#_R2.fastq.gz
+```
 
 #### Step 5: Align mock samples to MEGARes v.4
 This step performs alignment and subsequent filtering using NGLess (1.5). Internally, NGLess uses bwa-mem to perform alignments, and samtools to filter alignments based on minimum criteria. The base filtering parameters (minimum alignment length = 45bp, minimum average nucleotide identity = 97%, uniquely mapped reads) were the minimum alignment input parameters necessary for metaSNV v2 to perform SNV calling.
@@ -310,7 +334,7 @@ filtered_unique = samtools_sort(filtered_unique)
 write(filtered_unique, ofile='NGLess_outputs/' + current + '_100bp_97ani.unique.sorted.bam')
 ```
 
-map.ngl was used on raw mock.fastq.gz samples, with the minimum base alignment length (45bp), for all three sequencing depths. filter.ngl was used to further filter the output bam files to only get reads with a minimum alignment length of 75bp and 100bp, respectively. Each unique combination of sequencing depth and minimum alignment length was processed in a separate directory. 
+map.ngl was used on raw mock.fastq.gz samples, with the minimum base alignment length (45bp), for all three sequencing depths. filter.ngl was used to further filter the output bam files to only get reads with a minimum alignment length of 75bp and 100bp, respectively. Each unique combination of sequencing depth and minimum alignment length was processed in a separate directory. After performing host removal with AMR++, host removed .fastq files underwent mapping to the MEGARes v.4 database and subsequent alignment filtering using the same steps as for the non-host mock samples. 
 
 Both scripts run on a per-sample basis, and iterate to the next sample with each successive command. It can be run with a bash loop, as written below, one iteration per sample (10 in "-le 10" can be swapped with number of unique samples.). The number of iterations can be found with "ws -l sample_filenames.txt". Since the filter.ngl file is created at the start of a run, all specified parameters are included within the script, save for threads. The number of threads with which to run the command is "-j NN".
 
@@ -338,6 +362,7 @@ conda activate metaSNV
 ```
 
 Run metaSNV:
+SNV calling was performed on both mock samples and host-removed mock samples using default metaSNV v2 parameters. 
 ```
 # Run syntax
 metaSNV.py [path/to/metaSNV/output_dir/] [path/to/bam_filepaths.txt] [path/to/MEGARes_db.fasta]

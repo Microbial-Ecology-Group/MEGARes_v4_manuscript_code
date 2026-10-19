@@ -1,0 +1,215 @@
+---
+title: "Host_removal_analysis"
+author: "Jared G. Young"
+date: "2026-10-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Load Functions
+```{r}
+library(tidyr)
+library(dplyr)
+library(stringr)
+
+prepare_snp_data <-function(SNP_df) {
+  # Copy annotation column 
+  SNP_df$ann_rep <- SNP_df$SNV_accession
+  # Separate annotation
+  SNP_df <- SNP_df |> 
+    separate_wider_delim(ann_rep, delim = "|", names = c("acc","type","class","mechanism","group","snp"))
+  # Separate snp annotation
+  SNP_df <- SNP_df |> 
+    separate_wider_delim(snp, delim = "_", names = c("grp_acc","ref_nuc","pos","var_nuc"))
+  # Nucleotide to upercase 
+  SNP_df$ref_nuc <- toupper(SNP_df$ref_nuc)
+  SNP_df$var_nuc <- toupper(SNP_df$var_nuc)
+  # Re-make meg ann
+  SNP_df <- SNP_df |>
+    unite("meg_ann",acc,type,class,mechanism,group, sep = "|", remove = FALSE)
+  # Remake SNP ann
+  SNP_df <- SNP_df |>
+    unite("SNP",grp_acc,ref_nuc,pos,var_nuc,sep="_")
+  parsed_SNP_df <- SNP_df |>
+    unite("SNP_ann",acc,type,class,mechanism,group,SNP,sep="|")
+  return(parsed_SNP_df)
+}
+
+get_snp_counts3 <- function(metadata,called_snps,tp1,tp2,snp_accs) {
+  nrows <- 10
+  final_df <- data.frame(
+    SampleID = character(nrows),
+    Repeat = character(nrows),
+    All_tp_snps = numeric(nrows),
+    All_tp_genes = numeric(nrows),
+    All_cap_snps = numeric(nrows),
+    Cap_tp_genes = numeric(nrows),
+    Cap_tp_snps = numeric(nrows),
+    TP_less_2 = numeric(nrows),
+    TP_3_to_5 = numeric(nrows),
+    TP_more_6 = numeric(nrows),
+    FP_less_2 = numeric(nrows),
+    FP_3_to_5 = numeric(nrows),
+    FP_more_6 = numeric(nrows)
+  )
+  for (i in 1:nrow(metadata)) {
+    val1 <- metadata$SampleID[i]
+    val2 <- metadata$Repeat[i]
+    R_snps <- called_snps[,c("SNV_accession",paste0(val1),"meg_ann","SNP_ann")]
+    if (metadata$ARG_set[i] == "Set1") {
+      R_tp <- tp1[,c("header","snp_header",paste0(val2))] #filter tp1 for sample
+      R_tp_filt <- R_tp |> dplyr::filter(!!sym(val2) == 1) # get tp values for sample
+      R_snps_filt <- R_snps |> dplyr::filter(!!sym(val1) >= 1) # get nonzero vals
+      R_snps_filt <- R_snps_filt |> dplyr::filter(!meg_ann %in% snp_accs) # remove SNPconf
+      R_genes_list <- as.list(R_tp_filt$header)
+      R_snps_genefilt <- R_snps_filt |> dplyr::filter(meg_ann %in% R_genes_list)
+      tp_snp_list <- as.list(R_tp_filt$snp_header)
+      R_snps_snpfilt <- R_snps_genefilt |> dplyr::filter(SNP_ann %in% tp_snp_list)
+      FP_snps <- R_snps_filt |> dplyr::filter(!SNP_ann %in% tp_snp_list) # get non-tp SNPs
+    } else {
+      R_tp <- tp2[,c("header","snp_header",paste0(val2))]
+      R_tp_filt <- R_tp |> dplyr::filter(!!sym(val2) == 1)
+      R_snps_filt <- R_snps |> dplyr::filter(!!sym(val1) >= 1)
+      R_snps_filt <- R_snps_filt |> dplyr::filter(!meg_ann %in% snp_accs)
+      R_genes_list <- as.list(R_tp_filt$header)
+      R_snps_genefilt <- R_snps_filt |> dplyr::filter(meg_ann %in% R_genes_list)
+      tp_snp_list <- as.list(R_tp_filt$snp_header)
+      R_snps_snpfilt <- R_snps_genefilt |> dplyr::filter(SNP_ann %in% tp_snp_list)
+      FP_snps <- R_snps_filt |> dplyr::filter(!SNP_ann %in% tp_snp_list) # get non-tp SNPs
+    }
+    All_tp_snps <- nrow(R_tp_filt) # save for metadata
+    All_tp_genes <- n_distinct(R_tp_filt$header) # save for metadata
+    All_cap_snps <- nrow(R_snps_filt) # save for metadate 
+    Cap_tp_genes <- n_distinct(R_snps_genefilt$meg_ann) # Save for metadata
+    Cap_tp_snps <- nrow(R_snps_snpfilt) # save for metadata
+    TP_less_2 <- nrow(R_snps_snpfilt |> dplyr::filter(!!sym(val1) <= 2))
+    TP_3_to_5 <- nrow(R_snps_snpfilt |> dplyr::filter(!!sym(val1) >= 3 & !!sym(val1) <=5))
+    TP_more_6 <- nrow(R_snps_snpfilt |> dplyr::filter(!!sym(val1) >= 6))
+    FP_less_2 <- nrow(FP_snps |> dplyr::filter(!!sym(val1) <= 2))
+    FP_3_to_5 <- nrow(FP_snps |> dplyr::filter(!!sym(val1) >= 3 & !!sym(val1) <=5))
+    FP_more_6 <- nrow(FP_snps |> dplyr::filter(!!sym(val1) >= 6))
+    final_df[i, ] <- list(val1,val2,All_tp_snps,All_tp_genes,All_cap_snps,Cap_tp_genes,Cap_tp_snps,TP_less_2,TP_3_to_5,TP_more_6,FP_less_2,FP_3_to_5,FP_more_6)
+  }
+  return(final_df)
+}
+
+benchmark_metrics3 <- function(input_df) {
+  ## Recall = TP/(TP+FN), FN = All_tp - Cap_tp
+  input_df$False_negatives <- input_df$All_tp_snps - input_df$Cap_tp_snps
+  input_df$Recall <- input_df$Cap_tp_snps/(input_df$Cap_tp_snps + input_df$False_negatives)
+  ## Precision = TP/(TP+FP)
+  input_df$False_positives <- input_df$All_cap_snps - input_df$Cap_tp_snps
+  input_df$Precision <- input_df$Cap_tp_snps/(input_df$Cap_tp_snps + input_df$False_positives)
+  ## F1 = 2(TP)/((2TP)+FP+FN)
+  input_df$F1_score <- (2*input_df$Cap_tp_snps) / ((2*input_df$Cap_tp_snps) + input_df$False_positives + input_df$False_negatives)
+  ## Widen metadata annotation 
+  input_df$Annotation <- input_df$SampleID
+  output_df <- input_df |> 
+    tidyr::separate_wider_delim(Annotation, delim = "_", names = c("Sample","Depth","Rep","Host_Rep","Aln_len","ANI","DB"))
+  
+  return(output_df)
+}
+```
+
+### Load and process data
+```{r}
+### Other packages
+library(ggplot2)
+library(patchwork)
+library(ggokabeito)
+### Data
+tp_data1 <- readRDS("v2_tp_snp_data/set1_v4_R_snp_onebased_pa.rds")
+tp_data2 <- readRDS("v2_tp_snp_data/set2_v4_R_snp_onebased_pa.rds")
+snp_accs <- readRDS("v2_tp_snp_data/draft2_v4_snpheads.rds")
+host_snps_45 <- read.csv("Host_rem_Results/host_rem_ngl_45bp_snv_analytic_matrix.csv")
+meta_host_45 <- read.csv("Host_rem_Results/host_metadata_45.csv")
+host_snps_75 <- read.csv("Host_rem_Results/host_rem_ngl_75bp_snv_analytic_matrix.csv")
+meta_host_75 <- read.csv("Host_rem_Results/host_metadata_75.csv")
+host_snps_100 <- read.csv("Host_rem_Results/host_rem_ngl_100bp_snv_analytic_matrix.csv")
+meta_host_100 <- read.csv("Host_rem_Results/host_metadata_100.csv")
+
+## Benchmark results
+prep_host_45 <- prepare_snp_data(host_snps_45)
+snp_host_45 <- get_snp_counts3(meta_host_45,prep_host_45,tp_data1,tp_data2,snp_accs)
+prep_host_75 <- prepare_snp_data(host_snps_75)
+snp_host_75 <- get_snp_counts3(meta_host_75,prep_host_75,tp_data1,tp_data2,snp_accs)
+prep_host_100 <- prepare_snp_data(host_snps_100)
+snp_host_100 <- get_snp_counts3(meta_host_100,prep_host_100,tp_data1,tp_data2,snp_accs)
+merge_snp_10m <- rbind(snp_host_45,snp_host_75,snp_host_100)
+host_snp_out <- benchmark_metrics3(merge_snp_10m)
+host_snp_out <- host_snp_out |> mutate(Aln_len = factor(Aln_len, levels = c("45bp","75bp","100bp")))
+```
+
+### Make plot data
+```{r}
+### Recall 
+ggplot(host_snp_out, aes(x = Depth, y = Recall, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("SNV Recall")+
+  ggtitle("A")+
+  scale_fill_okabe_ito()+
+  ylim(c(0,1))+
+  theme(legend.position = "None")
+
+### Precision
+ggplot(host_snp_out, aes(x = Depth, y = Precision, fill = Aln_len))+
+  geom_boxplot()+
+  xlab("Read depth")+
+  ylab("SNV Precision")+
+  ggtitle("B")+
+  scale_fill_okabe_ito()+
+  ylim(c(0,1))+
+  labs(fill = "Minimum\nAlignment\nLength")
+
+### Publication facing stats
+mean(host_snp_out$Recall)
+sd(host_snp_out$Recall)
+mean(host_snp_out$Precision)
+sd(host_snp_out$Precision)
+```
+
+### Get host removal statistics: 
+```{r}
+host_rem <- read.table("Host_rem_Results/host.removal.stats", header = TRUE)
+
+# Divide by two, since counts are aggregated across both files, and I want the average of the two
+host_rem$NumberOfInputReads <- host_rem$NumberOfInputReads/2
+host_rem$Mapped <- host_rem$Mapped/2
+host_rem$Unmapped <- host_rem$Unmapped/2
+host_rem$Perc_host_rem <- host_rem$Mapped/20000000
+mean(host_rem$Perc_host_rem)
+sd(host_rem$Perc_host_rem)
+```
+
+
+### Get difference in AMR counts
+```{r}
+## Raw sample (no host)
+raw_amr <- read.csv("Host_rem_Results/AMR_0gf_0qc_analytic_matrix_mock_samples.csv")
+raw_df <- as.data.frame(colSums(raw_amr[,2:11]))
+raw_df <- rownames_to_column(raw_df, var = "SampleID")
+colnames(raw_df) <- c("SampleID","Raw_amr_counts")
+raw_df$Type <- "NonHost"
+## Host sample 
+host_amr <- read.csv("Host_rem_Results/AMR_0gf_0qc_analytic_matrix.csv")
+host_df <- as.data.frame(colSums(host_amr[2:11]))
+host_df <- rownames_to_column(host_df, var = "HostSampleID")
+colnames(host_df) <- c("HostSampleID","Host_amr_counts")
+host_df$SampleID <- host_df$HostSampleID
+host_df <- host_df |> separate_wider_delim(
+  cols = SampleID,
+  delim = "_H",
+  names = c("SampleID","Hnum")
+)
+host_df$Hnum <- paste0("H",host_df$Hnum)
+
+amr_count_df <- merge(raw_df, host_df, by = "SampleID")
+
+amr_count_df$Perc_AMR_kept <- amr_count_df$Host_amr_counts / amr_count_df$Raw_amr_counts
+mean(amr_count_df$Perc_AMR_kept)
+sd(amr_count_df$Perc_AMR_kept)
+```
